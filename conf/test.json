@@ -1,0 +1,25 @@
+{
+    "id": "xds-node-id",
+
+    "protocol":[
+            { "_type": "http",   "port": "7581"},
+            { "_type": "https",  "port": "7543"}
+    ],
+
+    "tls_cert": {
+            "cert_chain":   "/home/envoy/envoy/etc/certificate/ebupt_server.pem",
+            "private_key":  "/home/envoy/envoy/etc/certificate/ebupt_server.key"
+    },
+
+    "serv_filter":  {
+            "#black":        "",
+            "white":       "|diauth|dicc|operservice|"
+    },
+
+    "flowLimitrate": {
+            "limit_number": 100000,
+            "limit_time":   1
+    },
+    "prometheus":   "on"
+
+}
