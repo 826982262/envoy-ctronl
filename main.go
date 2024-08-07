@@ -7,6 +7,7 @@ import (
 
 	"github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/server/v3"
+	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 )
 
@@ -19,8 +20,9 @@ func main() {
 	if err != nil {
 		log.Errorf("Failed to listen: %v", err)
 	}
-	conn, err := lis.Accept()
-	log.Debugf("envoy地址：%v", conn.RemoteAddr())
+	// conn, err := lis.Accept()
+	// log.Debugf("envoy地址：%v", conn.RemoteAddr())
+	// examples.MakeEndpointsUpdate()
 
 	sc := cache.NewSnapshotCache(true, cache.IDHash{}, log)
 	srv := server.NewServer(ctx, sc, nil)
@@ -33,8 +35,9 @@ func main() {
 	// listenerservice.RegisterListenerDiscoveryServiceServer(gs, srv)
 	// routeservice.RegisterRouteDiscoveryServiceServer(gs, srv)
 	// discoverygrpc.RegisterAggregatedDiscoveryServiceServer(gs, srv)
+	id := viper.GetString("id")
 
-	err = examples.SetSnapshot(ctx, "xds-node-id", sc)
+	err = examples.SetSnapshot(ctx, id, sc)
 	if err != nil {
 		log.Errorf("set snapshot error: %v", err)
 	} else {
@@ -45,5 +48,4 @@ func main() {
 	if err := gs.Serve(lis); err != nil {
 		log.Errorf("Failed to serve: %v", err)
 	}
-
 }

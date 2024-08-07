@@ -2,12 +2,14 @@ package examples
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
 	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
+
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	routerv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3"
@@ -26,21 +28,40 @@ type EnvoyCluster struct {
 	endpoints []string
 }
 
+var (
+	endpoints     []types.Resource
+	version       int
+	snapshotCache cache.SnapshotCache
+)
+
+var envoyCluster EnvoyCluster
+
 func SetSnapshot(ctx context.Context, nodeId string, sc cache.SnapshotCache) error {
-	clusterName := "xds_demo_cluster"
-	manager := buildHttpManager(clusterName)
+	envoyCluster.name = "xds_demo_cluster"
+	// clusterName := "xds_demo_cluster"
+
+	manager := buildHttpManager(envoyCluster.name, "www.envoyproxy.io")
 	fcs := buildFilterChain(manager)
 	serviceListener := buildListener("0.0.0.0", 14000, fcs)
 
-	serviceEndpoint := buildEndpoint("www.envoyproxy.io", 32)
-	serviceCluster := buildCluster(clusterName, serviceEndpoint)
+	// serviceEndpoint := buildEndpoint("www.envoyproxy.io", 443)
+	serviceEndpoint := buildEndpoints()
+
+	serviceCluster := buildClusters(envoyCluster.name, serviceEndpoint)
+
+	// fmt.Printf("serviceCluster:%v", serviceCluster)
+	// fmt.Printf("serviceEndpoint:%v", serviceEndpoint)
 
 	rs := map[resource.Type][]types.Resource{
-		resource.ClusterType:  {serviceCluster},
-		resource.EndpointType: {serviceEndpoint},
+		resource.ClusterType: {serviceCluster},
+		// resource.EndpointType: {serviceEndpoint},
+		// resource.EndpointType: edsEndpoints,
+
 		resource.ListenerType: {serviceListener},
 		resource.RouteType:    {manager},
 	}
+	// fmt.Printf("%v", rs)
+
 	snapshot, err := cache.NewSnapshot("1", rs)
 
 	if err != nil {
@@ -69,7 +90,7 @@ func buildFilterChain(manager *http_connection_manager.HttpConnectionManager) []
 	return fcs
 }
 
-func buildHttpManager(clusterName string) *http_connection_manager.HttpConnectionManager {
+func buildHttpManager(clusterName string, upstreamHost string) *http_connection_manager.HttpConnectionManager {
 	xdsRoute := &route.RouteConfiguration{
 		Name: "xds_demo_route",
 		VirtualHosts: []*route.VirtualHost{
@@ -86,7 +107,7 @@ func buildHttpManager(clusterName string) *http_connection_manager.HttpConnectio
 						Action: &route.Route_Route{
 							Route: &route.RouteAction{
 								HostRewriteSpecifier: &route.RouteAction_HostRewriteLiteral{
-									HostRewriteLiteral: "www.envoyproxy.io",
+									HostRewriteLiteral: upstreamHost,
 								},
 								// 集群要去下文一致
 								ClusterSpecifier: &route.RouteAction_Cluster{
@@ -124,6 +145,7 @@ func buildHttpManager(clusterName string) *http_connection_manager.HttpConnectio
 }
 
 func buildEndpoint(addr string, port uint32) *endpoint.LbEndpoint {
+
 	epTarget := &endpoint.LbEndpoint{
 		HostIdentifier: &endpoint.LbEndpoint_Endpoint{
 			Endpoint: &endpoint.Endpoint{
@@ -143,7 +165,44 @@ func buildEndpoint(addr string, port uint32) *endpoint.LbEndpoint {
 	return epTarget
 }
 
-func buildCluster(clusterName string, ep *endpoint.LbEndpoint) *cluster.Cluster {
+type lbaddrs struct {
+	Name   string
+	Ipaddr string
+	Port   uint32
+}
+
+func buildEndpoints() []*endpoint.LbEndpoint {
+	lbs := []lbaddrs{
+		{Name: "test", Port: 443, Ipaddr: "cn.bing.com"}, {Name: "test2", Port: 443, Ipaddr: "www.envoyproxy.io"},
+	}
+
+	lbEndpoints := []*endpoint.LbEndpoint{}
+	for _, lb := range lbs {
+		epTarget := &endpoint.LbEndpoint{
+			HostIdentifier: &endpoint.LbEndpoint_Endpoint{
+				Endpoint: &endpoint.Endpoint{
+					Address: &corev3.Address{
+						Address: &corev3.Address_SocketAddress{
+							SocketAddress: &corev3.SocketAddress{
+								Address: lb.Ipaddr,
+								PortSpecifier: &corev3.SocketAddress_PortValue{
+									PortValue: lb.Port,
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		lbEndpoints = append(lbEndpoints, epTarget)
+
+	}
+
+	fmt.Printf("%v", lbEndpoints)
+	return lbEndpoints
+}
+
+func buildClusters(clusterName string, ep []*endpoint.LbEndpoint) *cluster.Cluster {
 	serviceCluster := &cluster.Cluster{
 		Name:           clusterName,
 		ConnectTimeout: durationpb.New(time.Second * 3),
@@ -156,7 +215,7 @@ func buildCluster(clusterName string, ep *endpoint.LbEndpoint) *cluster.Cluster 
 			ClusterName: clusterName,
 			Endpoints: []*endpoint.LocalityLbEndpoints{
 				{
-					LbEndpoints: []*endpoint.LbEndpoint{ep},
+					LbEndpoints: ep,
 				},
 			},
 		},
